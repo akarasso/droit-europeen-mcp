@@ -99,8 +99,52 @@ def rechercher_eurlex(
 ) -> Any:
     """Recherche experte plein-texte via le webservice SOAP EUR-Lex.
 
+    ⚠️ Syntaxe EUR-Lex expert query — PROPRIÉTAIRE, pas du SQL.
+    Les champs sont TOUJOURS en MAJUSCULES. N'utilise JAMAIS CONTAINS, LIKE, WHERE.
+
+    Champs principaux :
+      DN : Document Number (CELEX) — ex: DN = 32016R0679
+      TI : Title (titre)           — ex: TI ~ "données personnelles"
+      TE : Text (texte intégral)   — ex: TE ~ "cybersécurité"
+      FM : Form (type d'acte)      — ex: FM = reg | dir | dec | deccfsp
+      AU : Author                  — ex: AU = commission | council | europarl
+      DD : Document Date           — ex: DD >= 2020-01-01
+      DC : Date of effect          — ex: DC >= 2018-05-25
+      CT : Court (jurisprudence)   — ex: CT = CJEU
+      CASE : Case number (CJUE)    — ex: CASE = C-131/12
+
+    Opérateurs :
+      `=`            égalité exacte (CELEX, type, auteur…)
+      `~`            contient / fuzzy (champs texte comme TI, TE)
+      `<`, `>`, `<=`, `>=`  comparaison (dates, numéros)
+      `AND`, `OR`, `NOT`    combinaisons booléennes
+      `"..."`        guillemets pour les phrases multi-mots
+
+    Exemples concrets (à adapter) :
+      • `DN = 32016R0679`
+          → le RGPD par son identifiant CELEX
+      • `TI ~ "intelligence artificielle" AND FM = reg`
+          → règlements avec "intelligence artificielle" dans le titre
+      • `AU = commission AND DD >= 2024-01-01 AND FM = dec`
+          → décisions de la Commission adoptées depuis 2024
+      • `TE ~ "cryptoactifs" AND FM = reg AND DD >= 2020-01-01`
+          → règlements mentionnant "cryptoactifs" dans le texte depuis 2020
+      • `CT = CJEU AND TI ~ "protection des données"`
+          → arrêts CJUE sur la protection des données
+
+    Limite : depuis le 1ᵉʳ janvier 2026, max 10 000 résultats par requête.
     Nécessite EURLEX_USERNAME et EURLEX_PASSWORD dans l'environnement.
-    Syntaxe : https://eur-lex.europa.eu/content/help/eurlex-content/expert-search.html
+    Doc de référence : https://eur-lex.europa.eu/content/help/eurlex-content/expert-search.html
+
+    Args:
+        expert_query: la requête en syntaxe EUR-Lex experte (voir exemples ci-dessus).
+        page: numéro de page (1 par défaut).
+        page_size: résultats par page (10 par défaut, max 100).
+        search_language: code langue 2 lettres (fr, en, de, it, es…).
+
+    Returns:
+        dict avec num_hits, total_hits, page, language, results (liste de
+        {reference, rank, title, document_links}).
     """
     return _get_soap().search(
         expert_query=expert_query,

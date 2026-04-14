@@ -90,21 +90,49 @@ class EurLexSoapAPI:
                 "Accept": "application/soap+xml, text/xml, application/xml",
             },
         )
-        r.raise_for_status()
-        return self._parse_response(r.text)
+        # NB: on ne fait PAS raise_for_status() avant _parse_response() :
+        # EUR-Lex renvoie les erreurs métier (syntaxe de requête invalide, etc.)
+        # dans un SOAP Fault *à l'intérieur* d'une réponse HTTP 500. On doit
+        # parser le body d'abord pour extraire le message d'erreur réel.
+        return self._parse_response(r.text, http_status=r.status_code)
 
     @staticmethod
-    def _parse_response(xml_text: str) -> Dict[str, Any]:
-        root = etree.fromstring(xml_text.encode("utf-8"))
+    def _parse_response(xml_text: str, http_status: int = 200) -> Dict[str, Any]:
+        try:
+            root = etree.fromstring(xml_text.encode("utf-8"))
+        except etree.XMLSyntaxError as e:
+            raise RuntimeError(
+                f"Réponse non-XML de EUR-Lex (HTTP {http_status}). "
+                f"Extrait : {xml_text[:500]!r}"
+            ) from e
 
         fault = root.find(".//soap:Fault", _NS)
         if fault is not None:
             reason = (
                 fault.findtext(".//soap:Reason/soap:Text", namespaces=_NS)
                 or fault.findtext(".//soap:Text", namespaces=_NS)
-                or etree.tostring(fault).decode()
+                or "(pas de message)"
             )
-            raise RuntimeError(f"SOAP Fault: {reason}")
+            # Code + subcode : ex. "Sender / WS_QUERY_SYNTAX_ERROR"
+            code = fault.findtext(".//soap:Code/soap:Value", namespaces=_NS) or ""
+            subcode = fault.findtext(".//soap:Subcode/soap:Value", namespaces=_NS) or ""
+            code_str = " / ".join(c.split(":")[-1] for c in (code, subcode) if c)
+
+            hint = ""
+            if "SYNTAX_ERROR" in subcode.upper():
+                hint = (
+                    " — Vérifie la syntaxe expert EUR-Lex : champs en MAJUSCULES "
+                    "(DN, TI, TE, FM, AU, DD), opérateurs `=` (exact) / `~` (contient) / "
+                    "`<`, `>`, `<=`, `>=`, combinaisons `AND` / `OR` / `NOT`. "
+                    "N'utilise PAS de syntaxe SQL-like (CONTAINS, LIKE, WHERE)."
+                )
+            raise RuntimeError(f"SOAP Fault [{code_str}]: {reason}{hint}")
+
+        if http_status >= 400:
+            raise RuntimeError(
+                f"EUR-Lex HTTP {http_status} sans SOAP Fault exploitable. "
+                f"Extrait : {xml_text[:500]!r}"
+            )
 
         results_el = root.find(".//s:searchResults", _NS)
         if results_el is None:
