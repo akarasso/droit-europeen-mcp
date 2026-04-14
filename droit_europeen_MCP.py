@@ -3,9 +3,15 @@
 
 import logging
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dotenv import load_dotenv
 from fastmcp import FastMCP
+
+# Charge .env depuis le répertoire du script, indépendamment du cwd
+# d'où le MCP est lancé (p.ex. via `claude mcp add`).
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from api_rest import CellarRestAPI
 from api_sparql import CellarSparqlAPI
